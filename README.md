@@ -15,6 +15,7 @@
 - `detectColStripes(...)`
 - `repairStripeRegionLinear(...)`
 - `detectAndRepairStripesLinear(...)`
+- `hasStripes(...)`（仅判断是否有条纹：有返回 `true`，无返回 `false`）
   
 以上接口新增 `useParallel` 参数（默认 `true`），可启用 OpenCV 的 `parallel_for_` 做分块并行加速。
 
@@ -49,6 +50,8 @@ g++ -std=c++17 -c stripe_detection.cpp `pkg-config --cflags opencv4`
 
 int main() {
     cv::Mat img = cv::imread("input.tif", cv::IMREAD_UNCHANGED);
+    bool exists = stripe::hasStripes(img, 3.0, "mean", 2, true);
+    if (!exists) return 0;
     auto result = stripe::detectAndRepairStripesLinear(img, 3.0, "mean", 2, 12, true);
     cv::imwrite("repaired.tif", result.repairedImage);
     return 0;

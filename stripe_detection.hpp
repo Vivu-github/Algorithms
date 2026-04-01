@@ -48,6 +48,13 @@ RepairResult detectAndRepairStripesLinear(
     int maxRadius = 10,
     bool useParallel = true);
 
+bool hasStripes(
+    const cv::Mat& image,
+    double threshold = 3.5,
+    const std::string& reducer = "mean",
+    int minRun = 1,
+    bool useParallel = true);
+
 } // namespace stripe
 
 #endif // STRIPE_DETECTION_HPP

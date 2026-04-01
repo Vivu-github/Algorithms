@@ -357,4 +357,13 @@ RepairResult detectAndRepairStripesLinear(const cv::Mat& image, double threshold
     return repairStripeRegionLinear(image, mergedMask, maxRadius, useParallel);
 }
 
+bool hasStripes(const cv::Mat& image, double threshold, const std::string& reducer, int minRun, bool useParallel) {
+    StripeDetectionResult rowRes = detectRowStripes(image, threshold, reducer, minRun, useParallel);
+    if (!rowRes.indices.empty()) {
+        return true;
+    }
+    StripeDetectionResult colRes = detectColStripes(image, threshold, reducer, minRun, useParallel);
+    return !colRes.indices.empty();
+}
+
 } // namespace stripe
