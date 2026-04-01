@@ -16,6 +16,7 @@
 - `repairStripeRegionLinear(...)`
 - `detectAndRepairStripesLinear(...)`
 - `hasStripes(...)`（仅判断是否有条纹：有返回 `true`，无返回 `false`）
+- `detectAnyAngleStripes(...)`（检测任意角度斜条纹，返回是否存在 + 最可能角度）
   
 以上接口新增 `useParallel` 参数（默认 `true`），可启用 OpenCV 的 `parallel_for_` 做分块并行加速。
 
@@ -31,6 +32,7 @@
 - 条带检测：行/列统计 + MAD 鲁棒 z-score + 阈值 + `minRun`
 - 条带修复：按掩膜区域进行四邻域线性插值 + 边缘镜像扩展 + 修复区域平滑
 - 并行加速：按行/列分块并行执行统计与修复计算（可通过 `useParallel=false` 关闭）
+- 任意角度斜条纹检测：通过角度扫描 + 旋转投影（`warpAffine` + 行统计）实现
 - 支持多通道逐通道修复
 - 支持 8 位、16 位、浮点数据；修复后按原类型范围裁剪并回写
 
@@ -50,7 +52,8 @@ g++ -std=c++17 -c stripe_detection.cpp `pkg-config --cflags opencv4`
 
 int main() {
     cv::Mat img = cv::imread("input.tif", cv::IMREAD_UNCHANGED);
-    bool exists = stripe::hasStripes(img, 3.0, "mean", 2, true);
+    auto angleRes = stripe::detectAnyAngleStripes(img, 3.0, "mean", 2, -85, 85, 2, true);
+    bool exists = angleRes.hasStripe;
     if (!exists) return 0;
     auto result = stripe::detectAndRepairStripesLinear(img, 3.0, "mean", 2, 12, true);
     cv::imwrite("repaired.tif", result.repairedImage);

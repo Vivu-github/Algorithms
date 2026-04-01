@@ -95,6 +95,14 @@ std::vector<double> robustZScore(const std::vector<double>& values, double eps =
     return z;
 }
 
+double maxAbs(const std::vector<double>& values) {
+    double m = 0.0;
+    for (double v : values) {
+        m = std::max(m, std::abs(v));
+    }
+    return m;
+}
+
 std::vector<bool> keepMinRuns(const std::vector<bool>& flags, int minRun) {
     if (minRun <= 1) return flags;
 
@@ -364,6 +372,69 @@ bool hasStripes(const cv::Mat& image, double threshold, const std::string& reduc
     }
     StripeDetectionResult colRes = detectColStripes(image, threshold, reducer, minRun, useParallel);
     return !colRes.indices.empty();
+}
+
+AngleStripeDetectionResult detectAnyAngleStripes(
+    const cv::Mat& image,
+    double threshold,
+    const std::string& reducer,
+    int minRun,
+    double angleMinDeg,
+    double angleMaxDeg,
+    double angleStepDeg,
+    bool useParallel) {
+
+    if (angleStepDeg <= 0.0) {
+        throw std::invalid_argument("angleStepDeg must be > 0");
+    }
+    if (angleMinDeg > angleMaxDeg) {
+        throw std::invalid_argument("angleMinDeg must be <= angleMaxDeg");
+    }
+    if (!(reducer == "mean" || reducer == "median")) {
+        throw std::invalid_argument("reducer must be 'mean' or 'median'");
+    }
+
+    cv::Mat gray = toGrayF64(image);
+    const cv::Point2f center(gray.cols * 0.5F, gray.rows * 0.5F);
+    const bool useMedian = (reducer == "median");
+
+    AngleStripeDetectionResult result{};
+
+    for (double angle = angleMinDeg; angle <= angleMaxDeg + 1e-12; angle += angleStepDeg) {
+        // 条纹角度=angle；将图像旋转 -angle 后，条纹会尽量与行方向对齐
+        cv::Mat rotMat = cv::getRotationMatrix2D(center, -angle, 1.0);
+        cv::Mat rotated;
+        cv::warpAffine(
+            gray,
+            rotated,
+            rotMat,
+            gray.size(),
+            cv::INTER_LINEAR,
+            cv::BORDER_REFLECT_101);
+
+        std::vector<double> rowProfile = reduceRows(rotated, useMedian, useParallel);
+        std::vector<double> z = robustZScore(rowProfile);
+        double score = maxAbs(z);
+
+        if (score > result.bestScore) {
+            result.bestScore = score;
+            result.bestAngleDeg = angle;
+        }
+    }
+
+    // 结合 minRun 再做一次严格判定（在最佳角度下）
+    cv::Mat bestRotMat = cv::getRotationMatrix2D(center, -result.bestAngleDeg, 1.0);
+    cv::Mat bestRotated;
+    cv::warpAffine(gray, bestRotated, bestRotMat, gray.size(), cv::INTER_LINEAR, cv::BORDER_REFLECT_101);
+
+    std::vector<double> bestProfile = reduceRows(bestRotated, useMedian, useParallel);
+    std::vector<double> bestZ = robustZScore(bestProfile);
+    std::vector<bool> flags(bestZ.size(), false);
+    for (size_t i = 0; i < bestZ.size(); ++i) flags[i] = std::abs(bestZ[i]) >= threshold;
+    flags = keepMinRuns(flags, minRun);
+
+    result.hasStripe = std::any_of(flags.begin(), flags.end(), [](bool f) { return f; });
+    return result;
 }
 
 } // namespace stripe

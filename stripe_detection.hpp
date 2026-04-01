@@ -20,6 +20,12 @@ struct RepairResult {
     cv::Mat binaryMask01;           // CV_8U mask: repair=1, normal=0
 };
 
+struct AngleStripeDetectionResult {
+    bool hasStripe = false;
+    double bestAngleDeg = 0.0;      // best stripe angle in degrees
+    double bestScore = 0.0;         // max abs robust z-score across scanned angles
+};
+
 StripeDetectionResult detectRowStripes(
     const cv::Mat& image,
     double threshold = 3.5,
@@ -53,6 +59,16 @@ bool hasStripes(
     double threshold = 3.5,
     const std::string& reducer = "mean",
     int minRun = 1,
+    bool useParallel = true);
+
+AngleStripeDetectionResult detectAnyAngleStripes(
+    const cv::Mat& image,
+    double threshold = 3.5,
+    const std::string& reducer = "mean",
+    int minRun = 1,
+    double angleMinDeg = -85.0,
+    double angleMaxDeg = 85.0,
+    double angleStepDeg = 2.0,
     bool useParallel = true);
 
 } // namespace stripe
