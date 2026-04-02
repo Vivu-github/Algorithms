@@ -66,8 +66,19 @@ AngleStripeDetectionResult detectAnyAngleStripes(
     double threshold = 3.5,
     const std::string& reducer = "mean",
     int minRun = 1,
-    double angleMinDeg = -85.0,
-    double angleMaxDeg = 85.0,
+    double angleMinDeg = 0.0,
+    double angleMaxDeg = 180.0,
+    double angleStepDeg = 2.0,
+    bool useParallel = true);
+
+RepairResult detectAndRepairAnyAngleStripes(
+    const cv::Mat& image,
+    double threshold = 3.5,
+    const std::string& reducer = "mean",
+    int minRun = 1,
+    int maxRadius = 10,
+    double angleMinDeg = 0.0,
+    double angleMaxDeg = 180.0,
     double angleStepDeg = 2.0,
     bool useParallel = true);
 

@@ -437,4 +437,47 @@ AngleStripeDetectionResult detectAnyAngleStripes(
     return result;
 }
 
+RepairResult detectAndRepairAnyAngleStripes(
+    const cv::Mat& image,
+    double threshold,
+    const std::string& reducer,
+    int minRun,
+    int maxRadius,
+    double angleMinDeg,
+    double angleMaxDeg,
+    double angleStepDeg,
+    bool useParallel) {
+
+    AngleStripeDetectionResult angleRes = detectAnyAngleStripes(
+        image, threshold, reducer, minRun, angleMinDeg, angleMaxDeg, angleStepDeg, useParallel);
+
+    if (!angleRes.hasStripe) {
+        cv::Mat emptyMask = cv::Mat::zeros(image.size(), CV_8U);
+        return {image.clone(), emptyMask};
+    }
+
+    cv::Mat gray = toGrayF64(image);
+    const cv::Point2f center(gray.cols * 0.5F, gray.rows * 0.5F);
+
+    cv::Mat rotMat = cv::getRotationMatrix2D(center, -angleRes.bestAngleDeg, 1.0);
+    cv::Mat rotated;
+    cv::warpAffine(gray, rotated, rotMat, gray.size(), cv::INTER_LINEAR, cv::BORDER_REFLECT_101);
+
+    StripeDetectionResult rotatedRowRes = detectRowStripes(rotated, threshold, reducer, minRun, useParallel);
+
+    cv::Mat invRotMat;
+    cv::invertAffineTransform(rotMat, invRotMat);
+    cv::Mat maskOrig255;
+    cv::warpAffine(
+        rotatedRowRes.mask,
+        maskOrig255,
+        invRotMat,
+        image.size(),
+        cv::INTER_NEAREST,
+        cv::BORDER_CONSTANT,
+        cv::Scalar(0));
+
+    return repairStripeRegionLinear(image, maskOrig255, maxRadius, useParallel);
+}
+
 } // namespace stripe
