@@ -187,10 +187,12 @@ void computeRowResidualProfile(
     bool useMedian,
     bool useParallel,
     std::vector<double>& profile,
-    std::vector<double>& consistency) {
+    std::vector<double>& consistency,
+    std::vector<double>& spanRatio) {
 
     profile.assign(gray.rows, 0.0);
     consistency.assign(gray.rows, 0.0);
+    spanRatio.assign(gray.rows, 0.0);
     if (gray.rows < 3) return;
 
     auto body = [&](const cv::Range& range) {
@@ -209,6 +211,24 @@ void computeRowResidualProfile(
             double meanAbs = absSum / static_cast<double>(gray.cols);
             profile[r] = p;
             consistency[r] = std::abs(p) / (meanAbs + 1e-9);
+
+            // 穿越度：同号且显著残差的最长连续段占宽度比例
+            int bestRun = 0;
+            int run = 0;
+            const double signRef = (p >= 0.0) ? 1.0 : -1.0;
+            const double magThr = std::max(1e-9, std::abs(p) * 0.5);
+            for (int c = 0; c < gray.cols; ++c) {
+                const double v = residuals[c];
+                const bool sameSign = (v * signRef) > 0.0;
+                const bool strong = std::abs(v) >= magThr;
+                if (sameSign && strong) {
+                    ++run;
+                    bestRun = std::max(bestRun, run);
+                } else {
+                    run = 0;
+                }
+            }
+            spanRatio[r] = static_cast<double>(bestRun) / static_cast<double>(gray.cols);
         }
     };
 
@@ -224,10 +244,12 @@ void computeColResidualProfile(
     bool useMedian,
     bool useParallel,
     std::vector<double>& profile,
-    std::vector<double>& consistency) {
+    std::vector<double>& consistency,
+    std::vector<double>& spanRatio) {
 
     profile.assign(gray.cols, 0.0);
     consistency.assign(gray.cols, 0.0);
+    spanRatio.assign(gray.cols, 0.0);
     if (gray.cols < 3) return;
 
     auto body = [&](const cv::Range& range) {
@@ -246,6 +268,23 @@ void computeColResidualProfile(
             double meanAbs = absSum / static_cast<double>(gray.rows);
             profile[c] = p;
             consistency[c] = std::abs(p) / (meanAbs + 1e-9);
+
+            int bestRun = 0;
+            int run = 0;
+            const double signRef = (p >= 0.0) ? 1.0 : -1.0;
+            const double magThr = std::max(1e-9, std::abs(p) * 0.5);
+            for (int r = 0; r < gray.rows; ++r) {
+                const double v = residuals[r];
+                const bool sameSign = (v * signRef) > 0.0;
+                const bool strong = std::abs(v) >= magThr;
+                if (sameSign && strong) {
+                    ++run;
+                    bestRun = std::max(bestRun, run);
+                } else {
+                    run = 0;
+                }
+            }
+            spanRatio[c] = static_cast<double>(bestRun) / static_cast<double>(gray.rows);
         }
     };
 
@@ -371,13 +410,17 @@ StripeDetectionResult detectRowStripes(const cv::Mat& image, double threshold, c
 
     std::vector<double> profile;
     std::vector<double> consistency;
-    computeRowResidualProfile(gray, useMedian, useParallel, profile, consistency);
+    std::vector<double> spanRatio;
+    computeRowResidualProfile(gray, useMedian, useParallel, profile, consistency, spanRatio);
     std::vector<double> scores = robustZScore(profile);
 
     std::vector<bool> flags(scores.size(), false);
     constexpr double kConsistencyThreshold = 0.55;  // 降低地物结构误检
+    constexpr double kSpanThreshold = 0.85;         // 需“穿过影像”才判定为条带
     for (size_t i = 0; i < scores.size(); ++i) {
-        flags[i] = (std::abs(scores[i]) >= threshold) && (consistency[i] >= kConsistencyThreshold);
+        flags[i] = (std::abs(scores[i]) >= threshold) &&
+                   (consistency[i] >= kConsistencyThreshold) &&
+                   (spanRatio[i] >= kSpanThreshold);
     }
     flags = keepMinRuns(flags, minRun);
 
@@ -402,13 +445,17 @@ StripeDetectionResult detectColStripes(const cv::Mat& image, double threshold, c
 
     std::vector<double> profile;
     std::vector<double> consistency;
-    computeColResidualProfile(gray, useMedian, useParallel, profile, consistency);
+    std::vector<double> spanRatio;
+    computeColResidualProfile(gray, useMedian, useParallel, profile, consistency, spanRatio);
     std::vector<double> scores = robustZScore(profile);
 
     std::vector<bool> flags(scores.size(), false);
     constexpr double kConsistencyThreshold = 0.55;  // 降低地物结构误检
+    constexpr double kSpanThreshold = 0.85;         // 需“穿过影像”才判定为条带
     for (size_t i = 0; i < scores.size(); ++i) {
-        flags[i] = (std::abs(scores[i]) >= threshold) && (consistency[i] >= kConsistencyThreshold);
+        flags[i] = (std::abs(scores[i]) >= threshold) &&
+                   (consistency[i] >= kConsistencyThreshold) &&
+                   (spanRatio[i] >= kSpanThreshold);
     }
     flags = keepMinRuns(flags, minRun);
 
