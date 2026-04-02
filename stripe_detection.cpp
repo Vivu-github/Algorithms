@@ -182,6 +182,80 @@ std::vector<double> reduceCols(const cv::Mat& gray, bool useMedian, bool usePara
     return profile;
 }
 
+void computeRowResidualProfile(
+    const cv::Mat& gray,
+    bool useMedian,
+    bool useParallel,
+    std::vector<double>& profile,
+    std::vector<double>& consistency) {
+
+    profile.assign(gray.rows, 0.0);
+    consistency.assign(gray.rows, 0.0);
+    if (gray.rows < 3) return;
+
+    auto body = [&](const cv::Range& range) {
+        for (int r = std::max(1, range.start); r < std::min(gray.rows - 1, range.end); ++r) {
+            std::vector<double> residuals(gray.cols, 0.0);
+            double absSum = 0.0;
+            for (int c = 0; c < gray.cols; ++c) {
+                double center = gray.at<double>(r, c);
+                double neigh = 0.5 * (gray.at<double>(r - 1, c) + gray.at<double>(r + 1, c));
+                double d = center - neigh;
+                residuals[c] = d;
+                absSum += std::abs(d);
+            }
+            double p = useMedian ? computeMedian(residuals)
+                                 : (std::accumulate(residuals.begin(), residuals.end(), 0.0) / static_cast<double>(gray.cols));
+            double meanAbs = absSum / static_cast<double>(gray.cols);
+            profile[r] = p;
+            consistency[r] = std::abs(p) / (meanAbs + 1e-9);
+        }
+    };
+
+    if (useParallel) {
+        cv::parallel_for_(cv::Range(1, gray.rows - 1), body);
+    } else {
+        body(cv::Range(1, gray.rows - 1));
+    }
+}
+
+void computeColResidualProfile(
+    const cv::Mat& gray,
+    bool useMedian,
+    bool useParallel,
+    std::vector<double>& profile,
+    std::vector<double>& consistency) {
+
+    profile.assign(gray.cols, 0.0);
+    consistency.assign(gray.cols, 0.0);
+    if (gray.cols < 3) return;
+
+    auto body = [&](const cv::Range& range) {
+        for (int c = std::max(1, range.start); c < std::min(gray.cols - 1, range.end); ++c) {
+            std::vector<double> residuals(gray.rows, 0.0);
+            double absSum = 0.0;
+            for (int r = 0; r < gray.rows; ++r) {
+                double center = gray.at<double>(r, c);
+                double neigh = 0.5 * (gray.at<double>(r, c - 1) + gray.at<double>(r, c + 1));
+                double d = center - neigh;
+                residuals[r] = d;
+                absSum += std::abs(d);
+            }
+            double p = useMedian ? computeMedian(residuals)
+                                 : (std::accumulate(residuals.begin(), residuals.end(), 0.0) / static_cast<double>(gray.rows));
+            double meanAbs = absSum / static_cast<double>(gray.rows);
+            profile[c] = p;
+            consistency[c] = std::abs(p) / (meanAbs + 1e-9);
+        }
+    };
+
+    if (useParallel) {
+        cv::parallel_for_(cv::Range(1, gray.cols - 1), body);
+    } else {
+        body(cv::Range(1, gray.cols - 1));
+    }
+}
+
 inline bool inBounds(int r, int c, int rows, int cols) {
     return r >= 0 && r < rows && c >= 0 && c < cols;
 }
@@ -295,11 +369,16 @@ StripeDetectionResult detectRowStripes(const cv::Mat& image, double threshold, c
         throw std::invalid_argument("reducer must be 'mean' or 'median'");
     }
 
-    std::vector<double> profile = reduceRows(gray, useMedian, useParallel);
+    std::vector<double> profile;
+    std::vector<double> consistency;
+    computeRowResidualProfile(gray, useMedian, useParallel, profile, consistency);
     std::vector<double> scores = robustZScore(profile);
 
     std::vector<bool> flags(scores.size(), false);
-    for (size_t i = 0; i < scores.size(); ++i) flags[i] = std::abs(scores[i]) >= threshold;
+    constexpr double kConsistencyThreshold = 0.55;  // 降低地物结构误检
+    for (size_t i = 0; i < scores.size(); ++i) {
+        flags[i] = (std::abs(scores[i]) >= threshold) && (consistency[i] >= kConsistencyThreshold);
+    }
     flags = keepMinRuns(flags, minRun);
 
     cv::Mat mask = cv::Mat::zeros(gray.size(), CV_8U);
@@ -321,11 +400,16 @@ StripeDetectionResult detectColStripes(const cv::Mat& image, double threshold, c
         throw std::invalid_argument("reducer must be 'mean' or 'median'");
     }
 
-    std::vector<double> profile = reduceCols(gray, useMedian, useParallel);
+    std::vector<double> profile;
+    std::vector<double> consistency;
+    computeColResidualProfile(gray, useMedian, useParallel, profile, consistency);
     std::vector<double> scores = robustZScore(profile);
 
     std::vector<bool> flags(scores.size(), false);
-    for (size_t i = 0; i < scores.size(); ++i) flags[i] = std::abs(scores[i]) >= threshold;
+    constexpr double kConsistencyThreshold = 0.55;  // 降低地物结构误检
+    for (size_t i = 0; i < scores.size(); ++i) {
+        flags[i] = (std::abs(scores[i]) >= threshold) && (consistency[i] >= kConsistencyThreshold);
+    }
     flags = keepMinRuns(flags, minRun);
 
     cv::Mat mask = cv::Mat::zeros(gray.size(), CV_8U);
@@ -415,8 +499,6 @@ AngleStripeDetectionResult detectAnyAngleStripes(
 
     cv::Mat gray = toGrayF64(image);
     const cv::Point2f center(gray.cols * 0.5F, gray.rows * 0.5F);
-    const bool useMedian = (reducer == "median");
-
     AngleStripeDetectionResult result{};
 
     for (double angle = angleMinDeg; angle <= angleMaxDeg + 1e-12; angle += angleStepDeg) {
@@ -431,9 +513,8 @@ AngleStripeDetectionResult detectAnyAngleStripes(
             cv::INTER_LINEAR,
             cv::BORDER_REFLECT_101);
 
-        std::vector<double> rowProfile = reduceRows(rotated, useMedian, useParallel);
-        std::vector<double> z = robustZScore(rowProfile);
-        double score = maxAbs(z);
+        StripeDetectionResult rowRes = detectRowStripes(rotated, threshold, reducer, minRun, useParallel);
+        double score = maxAbs(rowRes.scores);
 
         if (score > result.bestScore) {
             result.bestScore = score;
@@ -441,18 +522,12 @@ AngleStripeDetectionResult detectAnyAngleStripes(
         }
     }
 
-    // 结合 minRun 再做一次严格判定（在最佳角度下）
+    // 在最佳角度下做严格判定
     cv::Mat bestRotMat = cv::getRotationMatrix2D(center, -result.bestAngleDeg, 1.0);
     cv::Mat bestRotated;
     cv::warpAffine(gray, bestRotated, bestRotMat, gray.size(), cv::INTER_LINEAR, cv::BORDER_REFLECT_101);
-
-    std::vector<double> bestProfile = reduceRows(bestRotated, useMedian, useParallel);
-    std::vector<double> bestZ = robustZScore(bestProfile);
-    std::vector<bool> flags(bestZ.size(), false);
-    for (size_t i = 0; i < bestZ.size(); ++i) flags[i] = std::abs(bestZ[i]) >= threshold;
-    flags = keepMinRuns(flags, minRun);
-
-    result.hasStripe = std::any_of(flags.begin(), flags.end(), [](bool f) { return f; });
+    StripeDetectionResult bestRowRes = detectRowStripes(bestRotated, threshold, reducer, minRun, useParallel);
+    result.hasStripe = !bestRowRes.indices.empty();
     return result;
 }
 
