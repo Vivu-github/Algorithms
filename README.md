@@ -15,7 +15,7 @@
 - `detectColStripes(...)`
 - `repairStripeRegionLinear(...)`
 - `detectAndRepairStripesLinear(...)`
-- `hasStripes(...)`（仅判断是否有条纹：有返回 `true`，无返回 `false`）
+- `hasStripes(...)`（仅判断是否有条纹：有返回 `true`，无返回 `false`，默认全角度扫描）
 - `detectAnyAngleStripes(...)`（检测任意角度斜条纹，返回是否存在 + 最可能角度）
 - `detectAndRepairAnyAngleStripes(...)`（任意角度检测并修复）
   

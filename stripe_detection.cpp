@@ -381,12 +381,16 @@ RepairResult detectAndRepairStripesLinear(const cv::Mat& image, double threshold
 }
 
 bool hasStripes(const cv::Mat& image, double threshold, const std::string& reducer, int minRun, bool useParallel) {
-    StripeDetectionResult rowRes = detectRowStripes(image, threshold, reducer, minRun, useParallel);
-    if (!rowRes.indices.empty()) {
-        return true;
-    }
-    StripeDetectionResult colRes = detectColStripes(image, threshold, reducer, minRun, useParallel);
-    return !colRes.indices.empty();
+    AngleStripeDetectionResult angleRes = detectAnyAngleStripes(
+        image,
+        threshold,
+        reducer,
+        minRun,
+        0.0,
+        180.0,
+        2.0,
+        useParallel);
+    return angleRes.hasStripe;
 }
 
 AngleStripeDetectionResult detectAnyAngleStripes(
