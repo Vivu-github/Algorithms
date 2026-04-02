@@ -71,10 +71,25 @@ cv::Mat toGrayF64(const cv::Mat& image) {
     cv::Mat gray;
     if (image.channels() == 1) {
         image.convertTo(gray, CV_64F);
-    } else {
+    } else if (image.channels() == 3) {
         cv::Mat gray8;
         cv::cvtColor(image, gray8, cv::COLOR_BGR2GRAY);
         gray8.convertTo(gray, CV_64F);
+    } else if (image.channels() == 4) {
+        cv::Mat gray8;
+        cv::cvtColor(image, gray8, cv::COLOR_BGRA2GRAY);
+        gray8.convertTo(gray, CV_64F);
+    } else {
+        // 多光谱等多通道：按通道均值构建检测灰度基底
+        std::vector<cv::Mat> channels;
+        cv::split(image, channels);
+        gray = cv::Mat::zeros(image.size(), CV_64F);
+        for (const auto& ch : channels) {
+            cv::Mat ch64;
+            ch.convertTo(ch64, CV_64F);
+            gray += ch64;
+        }
+        gray /= static_cast<double>(channels.size());
     }
     return gray;
 }
